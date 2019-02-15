@@ -49,30 +49,23 @@ class NN(object):
 
     def create_layers( self):
         with tf.variable_scope( "layers"):
-            self.z0 = tf.add( tf.matmul( self.x, self.w0), self.b0)
+            self.z0 = tf.add( tf.matmul( self.x, self.w0), self.b0, name="z0")
             self.l0 = tf.sigmoid( self.z0, name="l0")
 
-            self.z_output = tf.add( tf.matmul( self.l0, self.w_out), self.b_out)
-            self.output = tf.sigmoid( self.z_output)
+            self.z_output = tf.add( tf.matmul( self.l0, self.w_out), self.b_out,
+                name="z_output")
+            self.output = tf.sigmoid( self.z_output, name="output")
 
         return self.output
 
     def create_backprop( self): #???
         with tf.variable_scope("deltas"):
-            print( self.output)
-            print( self.y)
-            input()
-            
             diff = tf.subtract( self.output, self.y)
-            print(diff)
-            print( self.z_output)
-            print( self.sigmoid_prime(self.z_output))
-            input()
 
             self.d_z_out = tf.multiply( diff,
                 self.sigmoid_prime( self.z_output), name="d_z_out")
-            self.d_b_out = selfa.d_z_out
-            self.d_w_out = t.matmul( tf.transpose( self.l0),
+            self.d_b_out = self.d_z_out
+            self.d_w_out = tf.matmul( tf.transpose( self.l0),
                 self.d_z_out, name="d_w_out")
 
             self.d_l0 = tf.matmul( self.d_z_out, tf.transpose( self.w_out))
@@ -124,5 +117,5 @@ class NN(object):
 
 if __name__ == "__main__":
 
-    nn = NN( n_x, n_y, n_z)
+    nn = NN( n_x, n_z, n_y)
     nn.train( x_train, y_train)
