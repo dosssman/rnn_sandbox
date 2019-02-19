@@ -1,13 +1,14 @@
+import time
 import numpy as np
 import tensorflow as tf
 from tensorflow import zeros_initializer as zinit
 from tensorflow.keras.datasets.mnist import load_data
 from tensorflow.contrib.layers import xavier_initializer as xinit
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 (x_train, y_train), (x_test, y_test) = load_data()
 
 n_x = 784
-n_z = 100
+n_z = 30
 n_y = 10
 
 x_train = np.reshape( x_train, [len(x_train), 784 ])
@@ -45,7 +46,13 @@ class NN(object):
         init = tf.global_variables_initializer()
         self.sess.run( init)
 
-        # self.cost = tf.square( tf.subtract( selfoutput, self.y))
+        self.cost = tf.reduce_sum( tf.square(
+            tf.subtract( self.output, self.y)))
+
+        self.train_writer = tf.summary.scalar( tensor=self.cost, name="Loss")
+
+        tf.summary.FileWriter( "./logs/" + time.strftime("%Y-%m-%d-%H-%M-%S"),
+            self.sess.graph)
 
     def create_layers( self):
         with tf.variable_scope( "layers"):
@@ -68,44 +75,58 @@ class NN(object):
             self.d_w_out = tf.matmul( tf.transpose( self.l0),
                 self.d_z_out, name="d_w_out")
 
-            self.d_l0 = tf.matmul( self.d_z_out, tf.transpose( self.w_out))
-            self.d_z0 = tf.multiply( self.d_l0, self.sigmoid_prime( self.z0))
+            self.d_l0 = tf.matmul( self.d_z_out, tf.transpose( self.w_out),
+                name="d_l0")
+            self.d_z0 = tf.multiply( self.d_l0, self.sigmoid_prime( self.z0),
+                name="d_z0")
             self.d_b0 = self.z0
-            self.d_w0 = tf.matmul( tf.transpose( self.x), self.d_z0)
+            self.d_w0 = tf.matmul( tf.transpose( self.x), self.d_z0, name="d_w0")
 
-    def create_gradient_step( self, lr=0.1):
+    def create_gradient_step( self, lr=tf.constant(0.5)):
         self.step = [
             tf.assign( self.w_out, tf.subtract( self.w_out,
-                tf.multiply( lr, self.d_w_out))),
+                tf.multiply( lr, self.d_w_out)), name="w_out_grad_step"),
             tf.assign( self.b_out, tf.subtract( self.b_out,
-                tf.multiply( lr, self.d_b_out))),
+                tf.multiply( lr, tf.reduce_mean( self.d_b_out, axis=[0]))),
+                name="b_out_grad_step"),
             tf.assign( self.b0, tf.subtract( self.b0,
-                tf.multiply( lr, self.d_b0))),
+                tf.multiply( lr, tf.reduce_mean( self.d_b0, axis=[0]))),
+                name="b0_grad_step"),
             tf.assign( self.w0, tf.subtract( self.w0,
-                tf.multiply( lr, self.d_w0)))
+                tf.multiply( lr, self.d_w0)), name="w0_grad_step")
         ]
         # Session run etc ...
 
-    def train( self, x_train, y_train, lr=.1, batch_size=100, max_epoch=10000):
+    def train( self, x_train, y_train, lr=.1, batch_size=10, max_epoch=10000):
         with self.sess as sess:
-            acct_mat = tf.equal( tf.argmax( self.output, 1), tf.argmax( self.y, 1))
+            acct_mat = tf.equal( tf.argmax( self.output, 1),
+                tf.argmax( self.y, 1))
             acct_res = tf.reduce_sum( tf.cast( acct_mat, tf.float32))
 
             for epoch in range(max_epoch):
                 batch_start = 0
+                np.random.shuffle( x_train)
+                np.random.shuffle( y_train)
 
-                for _ in range(int(len(x_train) / batch_size)):
-                    batch_x, batch_y = x_train[batch_start:(batch_start+batch_size)], \
+                for batch_idx in range(int(len(x_train) / batch_size)):
+                    # print( "Processing batch %d: [%d:%d]" % (batch_idx,
+                    #     batch_start, batch_start+batch_size))
+                    batch_x, batch_y = \
+                        x_train[batch_start:(batch_start+batch_size)], \
                         y_train[batch_start:(batch_start+batch_size)]
 
-                    sess.run( self.step, feed_dict={ self.x: batch_x, self.y: batch_y})
+                    step, cost = sess.run( [self.step, self.cost],
+                        feed_dict={ self.x: batch_x, self.y: batch_y})
+                    # self.train_writer.add_summary( cost, epoch)
+
                     batch_start += batch_size
 
-                    if epoch % 1000 == 0:
-                        res = sess.run( acct_res,feed_dict={ self.x: x_test[:1000],
-                            self.y: y_test[:1000]})
+                    print( "Epoch %d - Loss: %.3f" % (epoch, cost))
+                # if epoch % 10 == 0 and epoch > 0:
+                #     res = sess.run( acct_res,feed_dict={ self.x: x_test[:1000],
+                #         self.y: y_test[:1000]})
 
-                        print(res)
+                    # print( "Result @Epoch %d: %.3f" % ( epoch, res))
 
     def sigmoid( self, x):
         return tf.div( tf.constant(1.0),
