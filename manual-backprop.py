@@ -8,7 +8,7 @@ from tensorflow.contrib.layers import xavier_initializer as xinit
 (x_train, y_train), (x_test, y_test) = load_data()
 
 n_x = 784
-n_z = 100
+n_z = 72
 n_y = 10
 
 x_train = np.reshape( x_train, [len(x_train), 784 ])
@@ -107,7 +107,7 @@ class NN(object):
             self.d_b0 = self.z0
             self.d_w0 = tf.matmul( tf.transpose( self.x), self.d_z0, name="d_w0")
 
-            tf.summary.scalar( "Diff", diff)
+            tf.summary.histogram( "Diff", diff)
             tf.summary.histogram( "d_z_out__d_b_out", self.d_z_out)
             tf.summary.histogram( "d_w_out", self.d_w_out)
             tf.summary.histogram( "d_l0", self.d_l0)
@@ -134,15 +134,12 @@ class NN(object):
             tf.argmax( self.y, 1))
         self.acct_res = tf.reduce_sum( tf.cast( acct_mat, tf.float32))
 
-        tf.summary.scalar( "Acc", self.acct_res)
+        # tf.summary.scalar( "Acc", self.acct_res)
 
         return self.acct_res
 
     def train( self, x_train, y_train, lr=.1, batch_size=1000, max_epoch=10000):
         with self.sess as sess:
-            acct_mat = tf.equal( tf.argmax( self.output, 1),
-                tf.argmax( self.y, 1))
-            acct_res = tf.reduce_sum( tf.cast( acct_mat, tf.float32))
 
             for epoch in range(max_epoch):
                 batch_start = 0
@@ -167,7 +164,7 @@ class NN(object):
                         feed_dict={ self.x: x_test[:1000],
                                     self.y: y_test[:1000]})
 
-                    self.train_writer.add_summary( res, (epoch*batch_count)+batch_idx)
+                    # self.train_writer.add_summary( acct_res, (epoch*batch_count)+batch_idx)
 
                     batch_start += batch_size
 
