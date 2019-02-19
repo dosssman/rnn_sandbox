@@ -8,7 +8,7 @@ from tensorflow.contrib.layers import xavier_initializer as xinit
 (x_train, y_train), (x_test, y_test) = load_data()
 
 n_x = 784
-n_z = 30
+n_z = 100
 n_y = 10
 
 x_train = np.reshape( x_train, [len(x_train), 784 ])
@@ -19,6 +19,18 @@ y_train = np.array( [ np.array( [1 if y_train[i] == j else 0 for j in range(n_y)
     for i in range( len(y_train))])
 y_test = np.array( [ np.array( [1 if y_test[i] == j else 0 for j in range(n_y)])
     for i in range( len(y_test))])
+
+def variable_summaries(var):
+  """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+  with tf.name_scope('summaries'):
+    mean = tf.reduce_mean(var)
+    tf.summary.scalar('mean', mean)
+    with tf.name_scope('stddev'):
+      stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+    tf.summary.scalar('stddev', stddev)
+    tf.summary.scalar('max', tf.reduce_max(var))
+    tf.summary.scalar('min', tf.reduce_min(var))
+    tf.summary.histogram('histogram', var)
 
 class NN(object):
     def __init__(self, n_x, n_h, n_y):
@@ -36,10 +48,16 @@ class NN(object):
             self.b_out = tf.get_variable( shape=[n_y], initializer=xinit(),
                 name="b_out")
 
+        variable_summaries( self.w0)
+        variable_summaries( self.b0)
+        variable_summaries( self.w_out)
+        variable_summaries( self.b_out)
+
         # Init
         self.create_layers()
         self.create_backprop()
         self.create_gradient_step()
+        self.create_eval()
 
         # TF init
         self.sess = tf.Session()
@@ -49,10 +67,11 @@ class NN(object):
         self.cost = tf.reduce_sum( tf.square(
             tf.subtract( self.output, self.y)))
 
-        self.train_writer = tf.summary.scalar( tensor=self.cost, name="Loss")
+        tf.summary.scalar( "Loss", self.cost)
+        self.merged_summary = tf.summary.merge_all()
 
-        tf.summary.FileWriter( "./logs/" + time.strftime("%Y-%m-%d-%H-%M-%S"),
-            self.sess.graph)
+        self.train_writer = tf.summary.FileWriter( "./logs/" +
+            time.strftime("%Y-%m-%d-%H-%M-%S"), self.sess.graph)
 
     def create_layers( self):
         with tf.variable_scope( "layers"):
@@ -62,6 +81,12 @@ class NN(object):
             self.z_output = tf.add( tf.matmul( self.l0, self.w_out), self.b_out,
                 name="z_output")
             self.output = tf.sigmoid( self.z_output, name="output")
+
+            tf.summary.histogram( "z0", self.z0)
+            tf.summary.histogram( "z_output", self.z_output)
+
+            tf.summary.histogram( "l0", self.l0)
+            tf.summary.histogram( "output", self.output)
 
         return self.output
 
@@ -82,6 +107,14 @@ class NN(object):
             self.d_b0 = self.z0
             self.d_w0 = tf.matmul( tf.transpose( self.x), self.d_z0, name="d_w0")
 
+            tf.summary.scalar( "Diff", diff)
+            tf.summary.histogram( "d_z_out__d_b_out", self.d_z_out)
+            tf.summary.histogram( "d_w_out", self.d_w_out)
+            tf.summary.histogram( "d_l0", self.d_l0)
+            tf.summary.histogram( "d_z0__d_b0", self.d_z0)
+            tf.summary.histogram( "d_w0", self.d_w0)
+
+
     def create_gradient_step( self, lr=tf.constant(0.5)):
         self.step = [
             tf.assign( self.w_out, tf.subtract( self.w_out,
@@ -95,9 +128,17 @@ class NN(object):
             tf.assign( self.w0, tf.subtract( self.w0,
                 tf.multiply( lr, self.d_w0)), name="w0_grad_step")
         ]
-        # Session run etc ...
 
-    def train( self, x_train, y_train, lr=.1, batch_size=10, max_epoch=10000):
+    def create_eval(self):
+        acct_mat = tf.equal( tf.argmax( self.output, 1),
+            tf.argmax( self.y, 1))
+        self.acct_res = tf.reduce_sum( tf.cast( acct_mat, tf.float32))
+
+        tf.summary.scalar( "Acc", self.acct_res)
+
+        return self.acct_res
+
+    def train( self, x_train, y_train, lr=.1, batch_size=1000, max_epoch=10000):
         with self.sess as sess:
             acct_mat = tf.equal( tf.argmax( self.output, 1),
                 tf.argmax( self.y, 1))
@@ -105,28 +146,33 @@ class NN(object):
 
             for epoch in range(max_epoch):
                 batch_start = 0
-                np.random.shuffle( x_train)
-                np.random.shuffle( y_train)
+                # np.random.shuffle( x_train)
+                # np.random.shuffle( y_train)
 
-                for batch_idx in range(int(len(x_train) / batch_size)):
+                batch_count = int(len(x_train) / batch_size)
+
+                for batch_idx in range( batch_count):
                     # print( "Processing batch %d: [%d:%d]" % (batch_idx,
                     #     batch_start, batch_start+batch_size))
                     batch_x, batch_y = \
                         x_train[batch_start:(batch_start+batch_size)], \
                         y_train[batch_start:(batch_start+batch_size)]
 
-                    step, cost = sess.run( [self.step, self.cost],
+                    step, cost, merged_summary = sess.run( [self.step, self.cost, self.merged_summary],
                         feed_dict={ self.x: batch_x, self.y: batch_y})
-                    # self.train_writer.add_summary( cost, epoch)
+
+                    self.train_writer.add_summary( merged_summary, (epoch*batch_count)+batch_idx)
+
+                    res = sess.run( self.acct_res,
+                        feed_dict={ self.x: x_test[:1000],
+                                    self.y: y_test[:1000]})
+
+                    self.train_writer.add_summary( res, (epoch*batch_count)+batch_idx)
 
                     batch_start += batch_size
 
-                    print( "Epoch %d - Loss: %.3f" % (epoch, cost))
-                # if epoch % 10 == 0 and epoch > 0:
-                #     res = sess.run( acct_res,feed_dict={ self.x: x_test[:1000],
-                #         self.y: y_test[:1000]})
-
-                    # print( "Result @Epoch %d: %.3f" % ( epoch, res))
+                if epoch % 10 == 0 and epoch > 0:
+                    print( "Result @Epoch %d: %.3f" % ( epoch, res))
 
     def sigmoid( self, x):
         return tf.div( tf.constant(1.0),
