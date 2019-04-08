@@ -15,7 +15,7 @@ class RNN(object):
 
         self.create_weights()
         self.create_layers()
-        self.create_gradients()
+        # self.create_gradients()
 
         # Init variables
         self.sess = tf.Session()
@@ -77,12 +77,12 @@ class RNN(object):
 
 
         with tf.variable_scope( "temporary_vars"):
-            self.last_b = tf.get_variable( shape=[self.batch_size, self.n_y])
-            self.last_h = tf.get_variable( shape=[self.batch_size, self.n_h])
-            self.last_a = tf.get_variable( shape=[self.batch_size, self.n_h])
+            self.last_b = tf.get_variable( shape=[self.batch_size, self.n_y], name="last_b")
+            self.last_h = tf.get_variable( shape=[self.batch_size, self.n_h], name="last_h")
+            self.last_a = tf.get_variable( shape=[self.batch_size, self.n_h], name="last_a")
 
             self.tmp_last_a_grad = tf.get_variable(shape=[self.batch_size,
-                self.n_h])
+                self.n_h], name="tmp_last_a_grad")
 
 
         # Create Gradient Holder
@@ -156,7 +156,7 @@ class RNN(object):
         self.d_w_input_prev = tf.matmul( tf.transpose(self.x),
             self.tmp_a_grad)
 
-    def backprop(self, lr=.1, batch_x):
+    def backprop(self, batch_x, lr=.1):
 
         # Holders for gradient results
         self.a_grads, self.w_hidden_grads, self.w_input_grads, \
