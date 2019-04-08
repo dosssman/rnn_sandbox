@@ -30,11 +30,18 @@ tf.set_random_seed(0)
 # print( y_train.shape)
 
 class RNN(object):
+    # Helpers
+    def sigmoid_prime( x):
+        return tf.sigmoid( x) + (tf.constant(1.0) - tf.sigmoid(x));
+    # Objects
     def __init__(self, nn_arch):
         self.session = tf.Session()
 
         self.x = tf.placeholder( shape=[None, arch_], name="x")
         self.y = tf.placeholder( shape=[None,nn_arch["n_output"]], name="y")
+
+        self.latent_history = []
+        self.latent_
 
         # First Layer: Take X as input
         with tf.variable_scope( "l0"):
