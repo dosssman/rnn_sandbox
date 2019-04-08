@@ -183,7 +183,7 @@ class RNN(object):
             feed_dict = {self.x: batch_x[:,tstep,]}
 
             # Assign lastest tmp_a_grad and tmp_last_a
-            tf.assing( self.)
+            # tf.assing( self.)
             self.w_hidden_grads.append( self.sess.run( self.d_w_hidden_t,
                 feed_dict=feed_dict))
 
