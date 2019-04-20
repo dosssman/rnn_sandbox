@@ -15,7 +15,7 @@ class RNN(object):
 
         self.create_weights()
         self.create_layers()
-        # self.create_gradients()
+        self.create_gradients()
 
         # Init variables
         self.sess = tf.Session()
@@ -75,19 +75,17 @@ class RNN(object):
         # Create History holders
         self.a_history = []
 
-
         with tf.variable_scope( "temporary_vars"):
             self.last_b = tf.get_variable( shape=[self.batch_size, self.n_y], name="last_b")
             self.last_h = tf.get_variable( shape=[self.batch_size, self.n_h], name="last_h")
             self.last_a = tf.get_variable( shape=[self.batch_size, self.n_h], name="last_a")
+            self.d_last_prediction = tf.get_variable(
+                shape=[self.batch_size, self.n_y], name="last_prediction")
 
-            self.tmp_last_a_grad = tf.get_variable(shape=[self.batch_size,
-                self.n_h], name="tmp_last_a_grad")
-
-
-        # Create Gradient Holder
-        self.d_last_prediction = tf.placeholder( dtype=tf.float32,
-            shape=[self.batch_size, self.n_y])
+            self.tmp_a_grad = tf.get_variable(shape=[self.batch_size,
+                self.n_h], name="tmp_a_grad")
+            self.tmp_a_prev = tf.get_variable( shape=[self.batch_size,
+                self.n_h], name="tmp_a_prev")
 
     def fwd_pass(self, x_data, y_data):
         # print( x_data.shape)
@@ -103,7 +101,6 @@ class RNN(object):
             a = self.sess.run( self.a, feed_dict={ self.x:x_data[:,slice_idx,]})
             tf.assign( self.a_prev, a)
             self.a_history.append( a)
-            print( "Current slice_idx %d" % slice_idx)
 
         a, self.last_h, self.last_b = self.sess.run( (self.a, self.h, self.b),
             feed_dict={ self.x: x_data[:,-1,]})
@@ -115,8 +112,8 @@ class RNN(object):
         loss = self.sess.run( tf.reduce_sum(
             tf.square( tf.subtract( prediction, y_data))))
         # Premempitve computation
-        self.d_last_prediction = self.sess.run(
-            tf.subtract( prediction, y_data)) # delta L / delta o_N
+        tf.assign( self.d_last_prediction, self.sess.run(
+            tf.subtract( prediction, y_data))) # delta L / delta o_N
 
         return prediction, loss
 
@@ -135,28 +132,28 @@ class RNN(object):
 
         # delta L / delta K (w_output)
         self.d_last_w_output = tf.matmul( tf.transpose( self.last_h),
-            self.d_last_h)
+            self.d_last_b)
 
         # delta L / delta a_N
         self.d_last_a = tf.multiply( self.d_last_h,
             sigmoid_prime( self.last_a))
 
         # delta L / delta I (w_output)
-        self.d_last_w_input = tf.matmul( tf.transpose( self.x), self.d_last_a)
+        self.d_w_input = tf.matmul( tf.transpose( self.x), self.tmp_a_grad)
 
-        # for tstep in range( (self.n_x-1), 0, -1):
         # delta L / delta W_t
-        self.d_w_hidden_t = tf.matmul( tf.transpose( self.tmp_last_a),
+        self.d_w_hidden_t = tf.matmul( tf.transpose( self.last_a),
             self.tmp_a_grad)
 
         # delta L / delta a_previous
         self.d_a_prev = tf.matmul( self.tmp_a_grad, self.w_hidden)
 
-        # delta L / delta w_input_prev
-        self.d_w_input_prev = tf.matmul( tf.transpose(self.x),
-            self.tmp_a_grad)
+    def backprop(self, batch_x, lr=.5):
 
-    def backprop(self, batch_x, lr=.1):
+        # Last gradients only
+        # TODO: Fix this, dimension problem expected [50,10], gets [50,50]
+        d_w_output = self.sess.run( self.d_last_w_output,
+            feed_dict={ self.x: batch_x[:,-1,]})
 
         # Holders for gradient results
         self.a_grads, self.w_hidden_grads, self.w_input_grads, \
@@ -165,6 +162,7 @@ class RNN(object):
         feed_dict = { self.x: batch_x[:,(self.n_x-1),]}
         # Compute delta L / delta a_N : the last a layer gradient and saves
         self.a_grads.append( self.sess.run( self.d_last_a, feed_dict=feed_dict))
+        tf.assign( self.tmp_a_grad, self.a_grads[-1])
 
         # Compute delta L / delta B_hidden: same as the previous element
         self.B_hidden_grads.append( self.a_grads[-1])
@@ -173,26 +171,58 @@ class RNN(object):
         d_last_b = self.sess.run( self.d_last_b, feed_dict=feed_dict)
 
         # Computes delta L / delta B_hidden
-        self.B_output_grads.append( self.d_last_b)
+        self.B_output_grads.append( d_last_b)
 
         # Computes delta L / delta I (w_output)
-        d_last_w_input = self.sess.run( self.d_last_w_input, feed_dict=feed_dict)
-        self.w_input_grads.append( self.d_last_w_input)
+        d_last_w_input = self.sess.run( self.d_w_input, feed_dict=feed_dict)
+        self.w_input_grads.append( d_last_w_input)
 
-        for tstep in range( (self.n_x-1), 0, -1):
+        for tstep in range( (self.n_x-1), -1, -1):
             feed_dict = {self.x: batch_x[:,tstep,]}
 
             # Assign lastest tmp_a_grad and tmp_last_a
-            # tf.assing( self.)
+            tf.assign( self.last_a, self.a_history[tstep-1])
+            tf.assign( self.tmp_a_grad, self.a_grads[-1])
             self.w_hidden_grads.append( self.sess.run( self.d_w_hidden_t,
                 feed_dict=feed_dict))
 
-            self.a_grads.append( self.sess.run( self.d_a_prev,
-                feed_dict=feed_dict))
+            # tf.assign( self.tmp_a_prev, )
+            d_a_prev = self.sess.run( self.d_a_prev,
+                feed_dict=feed_dict)
+            self.a_grads.append( d_a_prev)
 
             self.B_hidden_grads.append( d_a_prev)
 
+            d_w_input_prev = self.sess.run( self.d_w_input, feed_dict=feed_dict)
+
             self.w_input_grads.append( d_w_input_prev)
+            # TODO* Also compute the BIAS gradient
+
+        # Reducing the gradients
+        def update_weights( original, gradient, lr=.5):
+            tf.assign( original, self.sess.run( original) - lr * gradient)
+
+        # w_output aka K
+        update_weights( self.w_output, d_w_output)
+
+        # B_output update (Output layer bias)
+        B_output_grads_red = np.sum( self.B_output_grads[-1], axis=0)
+        update_weights( self.b_output, B_output_grads_red)
+
+        # Updating w_hidden
+        reduced_w_hidden_grads = np.sum( np.array( self.w_hidden_grads), axis=0)
+        update_weights( self.w_hidden, reduced_w_hidden_grads)
+
+        # Updating B_hidden
+        # B_hidden shape:  (29, 100, 50) this doesn't seem right, 1 too many gradient
+        # print( "B_hidden shape: ", np.array(self.B_hidden_grads).shape)
+        reduced_B_hidden_grads = np.sum( np.sum( np.array( self.B_hidden_grads), axis=0), axis=0)
+        update_weights( self.b_hidden, reduced_B_hidden_grads)
+
+        # Updating w_input
+        # B_hidden shape:  (29, 100, 50) this doesn't seem right, 1 too many gradient
+        reduced_w_input_grads = np.sum( self.w_input_grads)
+        update_weights( self.w_input, reduced_w_input_grads)
 
     def train( self, x_train, y_train, n_epoch=1000, batch_size=100):
         for epoch in range( n_epoch):
@@ -235,9 +265,11 @@ if __name__ == "__main__":
         batch_x = x_train[batch_start:(batch_start+batch_size)]
         batch_y = y_train[batch_start:(batch_start+batch_size)]
 
-        print( "Processing Batch [%d;%d]" % ( batch_start, batch_start+batch_size))
-
         prediction, loss = rnn.fwd_pass( batch_x, batch_y)
+        print( "Processeced Batch [%d;%d] - Loss: %.3f" % ( batch_start, batch_start+batch_size, loss))
+
+        rnn.backprop( batch_x)
+
         # print( len(rnn.a_history[0][0]))
         # input()
         # d_last_b = rnn.sess.run( rnn.d_last_b ,
